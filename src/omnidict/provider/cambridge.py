@@ -4,7 +4,6 @@ from typing import ClassVar, cast
 from urllib.parse import unquote, urlencode, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
-from requests import Session
 from requests.exceptions import RequestException
 
 from .common import (
@@ -19,6 +18,7 @@ from .common import (
     Provider,
     Sense,
 )
+from .fetcher import BrowserFetcher, Fetcher, RequestsFetcher, running_in_anki
 
 ORIGIN = "https://dictionary.cambridge.org"
 
@@ -70,12 +70,20 @@ class CambridgeDictionaryProvider(Provider):
         "be",
     }
 
-    def __init__(self):
-        self.session = Session()
-        self.session.headers.update(self.browser_headers())
+    def __init__(self, fetcher: Fetcher | None = None):
+        if fetcher is None:
+            # In Anki, a real browser: Cloudflare answers plain requests with 403.
+            fetcher = (
+                BrowserFetcher()
+                if running_in_anki()
+                else RequestsFetcher(self.browser_headers())
+            )
+        self.fetcher = fetcher
 
     def __del__(self):
-        self.session.close()
+        fetcher = getattr(self, "fetcher", None)
+        if fetcher is not None:
+            fetcher.close()
 
     def fetch_definition(
         self, dictionary_id: str, term: str, *, download_audio: bool
@@ -95,19 +103,18 @@ class CambridgeDictionaryProvider(Provider):
         self.logger.info(
             f'Searching for "{search_term}" in "{dictionary_id}". Search URL: {url}'
         )
-        response = self.session.get(url)
+        response = self.fetcher.get_page(url)
         self.logger.info(f'"{search_term}" queried. Response URL: {response.url}')
-        response.raise_for_status()
 
         dataset = self._get_dataset(dictionary_id)
-        url = urlsplit(response.url)
-        if url.path == f"/spellcheck/{dataset}/":
+        response_path = urlsplit(response.url).path
+        if response_path == f"/spellcheck/{dataset}/":
             self.logger.info(
                 f'No definition found for "{search_term}" in "{dataset}" dataset. Raise DefinitionNotFoundError.'
             )
             raise DefinitionNotFoundError(f"No definition found for {search_term}")
 
-        match = self._RESPONSE_URL_PATH_PATTERN.match(url.path)
+        match = self._RESPONSE_URL_PATH_PATTERN.match(response_path)
         response_dataset: str | None = match.group("dataset") if match else None
 
         if response_dataset is None:
@@ -591,9 +598,7 @@ class CambridgeDictionaryProvider(Provider):
         return words, parenthesized_words_idx
 
     def _download_file(self, url: str) -> bytes:
-        response = self.session.get(url)
-        response.raise_for_status()
-        return response.content
+        return self.fetcher.get_bytes(url)
 
     @staticmethod
     def _get_dataset(dictionary_id: str) -> str:
