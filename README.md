@@ -7,6 +7,20 @@
 
 **Omnidict is the only Anki dictionary add-on you'll ever need.**
 
+> [!NOTE]
+> **About this fork.** This is a modified version of
+> [danny900714/omnidict](https://github.com/danny900714/omnidict), licensed under the
+> same AGPL-3.0. Changes (2026-11-05):
+>
+> - Inside Anki, Cambridge Dictionary pages and audio are loaded in a real browser
+>   (Anki's built-in Qt WebEngine) instead of `requests`. On some networks Cloudflare
+>   answers `requests` with `403 Forbidden`; a browser passes its check normally. If
+>   Cloudflare asks to confirm you are a person, a window opens and you answer it
+>   yourself. The add-on does not fake a browser or solve the check for you.
+> - Outside Anki (tests, scripts), the original `requests` session is still used.
+>
+> See `src/omnidict/provider/fetcher.py` and `src/omnidict/provider/browser.py`.
+
 It seamlessly integrates multiple dictionaries, letting you create definition cards effortlessly.
 The definition field is fully customizable — choose whether to include *pronunciation audio*,
 *phonemic transcriptions*, *translations* and *examples*.
