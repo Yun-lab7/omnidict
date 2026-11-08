@@ -37,6 +37,7 @@ from aqt.qt import (
 from aqt.utils import ask_user, show_warning, tooltip
 
 from .bbc import Episode, EpisodeError, find_sentence, load_episode
+from .logger import logger as _addon_logger
 from .quickadd import (
     batch_config,
     default_dictionary,
@@ -49,6 +50,10 @@ from .quickadd import (
     quick_add_config,
     resolve_dictionary,
 )
+
+# Same trick as the providers: a child logger without duplicated handlers.
+log = _addon_logger.getChild("batch")
+log.handlers.clear()
 
 # Remember the choices while Anki is open.
 _last_choices: dict = {}
@@ -86,6 +91,7 @@ def fetch_page(url: str) -> tuple[str, str]:
     thread). Returns the final URL and the HTML."""
     import requests
 
+    log.info(f"Downloading {url}")
     try:
         response = requests.get(
             url,
@@ -101,7 +107,12 @@ def fetch_page(url: str) -> tuple[str, str]:
             cookies={"CONSENT": "YES+", "SOCS": "CAI"},
         )
     except requests.RequestException as e:
+        log.warning(f"Download failed: {url}: {e!r}")
         raise EpisodeError(f"連不上網站：{e}") from e
+    log.info(
+        f"Got {response.status_code} from {response.url} "
+        f"({len(response.content)} bytes, history={[r.status_code for r in response.history]})"
+    )
     if response.status_code != 200:
         raise EpisodeError(f"網站回應 {response.status_code}，讀不到這一頁")
     response.encoding = response.encoding or "utf-8"
@@ -364,6 +375,10 @@ class BatchAddDialog(QDialog):
         self.episode_label.setText("讀取節目中…")
 
         def on_success(episode: Episode) -> None:
+            log.info(
+                f"Episode read: {episode.url} | {episode.title} | {episode.date} | "
+                f"{len(episode.vocabulary)} words | {len(episode.lines)} lines"
+            )
             self.episode_button.setEnabled(True)
             previous_tag = self.episode.tag if self.episode else ""
             self.episode, self.episode_source = episode, source
@@ -388,6 +403,7 @@ class BatchAddDialog(QDialog):
             )
 
         def on_failure(e: Exception) -> None:
+            log.warning(f"Reading episode failed for {source!r}", exc_info=e)
             self.episode_button.setEnabled(True)
             self.episode, self.episode_source = None, ""
             self.episode_label.setText("")
@@ -554,6 +570,7 @@ class BatchAddDialog(QDialog):
         ).failure(on_failed).run_in_background()
 
     def _fetch_failed(self, word: str, error: Exception) -> None:
+        log.warning(f"Batch lookup failed for {word!r}", exc_info=error)
         self._record(word, "failed", f"✗　{describe_error(error, word)}")
         self._advance()
 
