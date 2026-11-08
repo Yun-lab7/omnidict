@@ -59,7 +59,8 @@ Pause between words, so Cambridge isn't asked too fast.
 **`menu_shortcut`** — string, default: `"Ctrl+Shift+B"` (empty to disable)
 
 The batch dialog can also read an episode of BBC Learning English (e.g. 6 Minute
-English): paste the episode URL, or the path of the page saved with Ctrl+S, and press
+English): paste the episode URL (the BBC page, or the YouTube video — the BBC link in
+its description is followed), or the path of a page saved with Ctrl+S, and press
 **讀取節目**. The episode's vocabulary is added to the word list, the tag is set to e.g.
 `6min::2026-11-05_Could_vaccines_cure_cancer`, and each card gets the transcript sentence where the word was used
 (original sentence field) and the episode title, date and link (source field).

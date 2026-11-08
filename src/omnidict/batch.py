@@ -81,8 +81,9 @@ _WORD_NOTETYPE_CSS = """.card {
 """
 
 
-def fetch_page_text(url: str) -> str:
-    """Download a BBC page (runs in a background thread)."""
+def fetch_page(url: str) -> tuple[str, str]:
+    """Download a BBC or YouTube page, following redirects (runs in a background
+    thread). Returns the final URL and the HTML."""
     import requests
 
     try:
@@ -96,13 +97,15 @@ def fetch_page_text(url: str) -> str:
                 ),
                 "Accept-Language": "en-GB,en;q=0.9",
             },
+            # Skip YouTube's cookie-consent page in regions that show one.
+            cookies={"CONSENT": "YES+", "SOCS": "CAI"},
         )
     except requests.RequestException as e:
-        raise EpisodeError(f"連不上 BBC：{e}") from e
+        raise EpisodeError(f"連不上網站：{e}") from e
     if response.status_code != 200:
-        raise EpisodeError(f"BBC 回應 {response.status_code}，讀不到這一頁")
+        raise EpisodeError(f"網站回應 {response.status_code}，讀不到這一頁")
     response.encoding = response.encoding or "utf-8"
-    return response.text
+    return response.url, response.text
 
 
 def ensure_word_notetype(col: Collection) -> NotetypeId:
@@ -175,7 +178,7 @@ class BatchAddDialog(QDialog):
         episode_row = QHBoxLayout()
         self.episode_edit = QLineEdit()
         self.episode_edit.setPlaceholderText(
-            "（選填）BBC Learning English 節目網址，或 Ctrl+S 存下的網頁檔路徑"
+            "（選填）BBC Learning English 或 YouTube 的節目網址，或 Ctrl+S 存下的網頁檔路徑"
         )
         self.episode_button = QPushButton("讀取節目")
         episode_row.addWidget(self.episode_edit, 1)
@@ -198,7 +201,9 @@ class BatchAddDialog(QDialog):
         self.sentence_field_combo = QComboBox()
         self.source_field_combo = QComboBox()
         self.tags_edit = QLineEdit()
-        self.tags_edit.setPlaceholderText("例如 6min::2026-11-05_Could_vaccines_cure_cancer（空格分隔多個標籤）")
+        self.tags_edit.setPlaceholderText(
+            "例如 6min::2026-11-05_Could_vaccines_cure_cancer（空格分隔多個標籤）"
+        )
         self.notetype_button = QPushButton("建立單字筆記類型")
         self.notetype_button.setToolTip(
             f"建立「{WORD_NOTETYPE_NAME}」：Word、Definition、Sentence、Source 四個欄位"
@@ -390,7 +395,7 @@ class BatchAddDialog(QDialog):
 
         QueryOp(
             parent=self,
-            op=lambda _col: load_episode(source, fetch_page_text),
+            op=lambda _col: load_episode(source, fetch_page),
             success=on_success,
         ).failure(on_failure).run_in_background()
 

@@ -11,11 +11,10 @@ import html
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-ALLOWED_HOST_SUFFIX = "bbc.co.uk"
 # Words in a phrase that stand for "any words here", e.g. "prime (something)".
 _PLACEHOLDERS = {
     "something",
@@ -179,32 +178,110 @@ class EpisodeError(RuntimeError):
     pass
 
 
+def _host(url: str) -> str:
+    parts = urlsplit(url.strip())
+    if parts.scheme not in ("http", "https"):
+        return ""
+    return (parts.hostname or "").lower()
+
+
+def _host_is(host: str, domain: str) -> bool:
+    return host == domain or host.endswith("." + domain)
+
+
+def is_bbc(url: str) -> bool:
+    host = _host(url)
+    return _host_is(host, "bbc.co.uk") or host == "bbc.in"
+
+
+def is_youtube(url: str) -> bool:
+    host = _host(url)
+    return _host_is(host, "youtube.com") or host == "youtu.be"
+
+
 def check_url(url: str) -> str:
     url = url.strip()
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    if parts.scheme not in ("http", "https") or not (
-        host == ALLOWED_HOST_SUFFIX or host.endswith("." + ALLOWED_HOST_SUFFIX)
-    ):
+    if not (is_bbc(url) or is_youtube(url)):
         raise EpisodeError(
             "請貼 BBC Learning English 的節目網址（bbc.co.uk/learningenglish/…）"
+            "或這一集的 YouTube 網址"
         )
     return url
 
 
-def load_episode(source: str, fetch_text) -> Episode:
-    """`source` is an episode URL or the path of a page saved with Ctrl+S.
+_BBC_SHORT_LINK = re.compile(r"https?://bbc\.in/[A-Za-z0-9]+")
+_BBC_EPISODE_LINK = re.compile(
+    r"https?://(?:www\.)?bbc\.co\.uk/learningenglish/[A-Za-z0-9_/-]*?/ep-[A-Za-z0-9-]+"
+)
 
-    `fetch_text(url) -> str` downloads a page; it is passed in so tests need no network.
+
+def find_bbc_link(page: str) -> str | None:
+    """The BBC episode link in a YouTube page's description.
+
+    BBC Learning English videos say "Find a free worksheet, transcript and quiz for
+    this episode here 👉 https://bbc.in/…". Other BBC links in the description (the
+    newsletter, the home page) are not episode links and are ignored.
+    """
+    # The description sits in JSON ("https:\/\/bbc.in\/…") and in YouTube redirect
+    # links ("q=https%3A%2F%2Fbbc.in%2F…"); undo both before searching.
+    text = page.replace("\\/", "/").replace("\\u0026", "&")
+    text = unquote(text)
+    for pattern in (_BBC_SHORT_LINK, _BBC_EPISODE_LINK):
+        found = pattern.search(text)
+        if found:
+            return found.group(0)
+    return None
+
+
+def _looks_like_youtube(page: str, saved_from: str) -> bool:
+    return is_youtube(saved_from) or (
+        not saved_from and "youtube.com" in page[:5000] and "TRANSCRIPT" not in page
+    )
+
+
+def _without_query(url: str) -> str:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}{parts.path}"
+
+
+def load_episode(source: str, fetch) -> Episode:
+    """`source` is an episode URL (BBC or YouTube), or a page saved with Ctrl+S.
+
+    `fetch(url) -> (final_url, html)` downloads a page following redirects; it is
+    passed in so tests need no network.
     """
     source = source.strip().strip('"')
     path = Path(source)
     if not source.lower().startswith(("http://", "https://")) and path.is_file():
         page = path.read_text(encoding="utf-8", errors="replace")
         saved_from = re.search(r"saved from url=\(\d+\)(\S+)", page[:500])
-        return parse_episode(page, saved_from.group(1) if saved_from else "")
+        saved_url = saved_from.group(1) if saved_from else ""
+        if _looks_like_youtube(page, saved_url):
+            return _load_from_youtube_page(page, fetch)
+        return parse_episode(page, saved_url)
+
     url = check_url(source)
-    return parse_episode(fetch_text(url), url)
+    if is_youtube(url):
+        _final, page = fetch(url)
+        return _load_from_youtube_page(page, fetch)
+    return _load_bbc(url, fetch)
+
+
+def _load_from_youtube_page(page: str, fetch) -> Episode:
+    link = find_bbc_link(page)
+    if link is None:
+        raise EpisodeError(
+            "這支 YouTube 影片的簡介裡找不到 BBC 的節目連結，請改貼 BBC 網址"
+        )
+    return _load_bbc(link, fetch)
+
+
+def _load_bbc(url: str, fetch) -> Episode:
+    final_url, page = fetch(url)
+    final_url = final_url or url
+    if not _host_is(_host(final_url), "bbc.co.uk"):
+        raise EpisodeError(f"連結沒有轉到 BBC 的網站：{final_url}")
+    return parse_episode(page, _without_query(final_url))
 
 
 # --------------------------------------------------------------------------- parsing

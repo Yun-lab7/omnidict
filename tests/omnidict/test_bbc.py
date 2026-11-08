@@ -5,6 +5,7 @@ import pytest
 from omnidict.bbc import (
     EpisodeError,
     check_url,
+    find_bbc_link,
     find_sentence,
     load_episode,
     parse_episode,
@@ -100,21 +101,55 @@ def test_term_pattern_details():
     assert term_pattern("break down").search("my car broke down")
 
 
-def test_load_episode_url_and_file(tmp_path):
+BBC_URL = "https://www.bbc.co.uk/learningenglish/english/features/6-minute-english_2099/ep-990101"
+
+# What a YouTube watch page looks like to a plain download: the description is in a
+# JSON blob, with escaped slashes, next to other BBC links that are not the episode.
+YOUTUBE_RAW = (
+    "<html><head><title>Do cats like music? ⏲️ 6 Minute English - YouTube</title></head>"
+    '<body><script>var ytInitialPlayerResponse = {"videoDetails":{"shortDescription":'
+    '"Subscribe to our newsletter 👉\\nhttps:\\/\\/www.bbc.co.uk\\/send\\/u178220599'
+    "\\nFind a free worksheet, transcript and quiz for this episode here 👉\\n"
+    'https:\\/\\/bbc.in\\/4BHgdjN\\nVisit https:\\/\\/www.bbc.co.uk\\/learningenglish"}};'
+    "</script></body></html>"
+)
+# The same page saved from a browser: links go through YouTube's redirect.
+YOUTUBE_SAVED = (
+    "<!-- saved from url=(0043)https://www.youtube.com/watch?v=-ukHyqiEH1U -->"
+    '<html><body><a href="https://www.youtube.com/redirect?event=video_description'
+    '&amp;q=https%3A%2F%2Fbbc.in%2F4BHgdjN&amp;v=x">https://bbc.in/4BHgdjN</a></body></html>'
+)
+
+
+def fake_web(pages):
+    """fetch(url) -> (final_url, html); bbc.in links redirect to BBC_URL with a query."""
+    calls = []
+
+    def fetch(url):
+        calls.append(url)
+        if url.startswith("https://bbc.in/"):
+            return BBC_URL + "?utm_source=youtube", pages[BBC_URL]
+        return url, pages[url]
+
+    fetch.calls = calls
+    return fetch
+
+
+def test_load_episode_from_bbc_url_and_file(tmp_path):
     page = tmp_path / "page.html"
     page.write_text(SAMPLE, encoding="utf-8")
-    ep = load_episode(f'"{page}"', fetch_text=None)
+    ep = load_episode(f'"{page}"', fetch=None)
     assert ep.url.endswith("ep-990101")
 
-    fetched = []
-    url = "https://www.bbc.co.uk/learningenglish/english/features/x/ep-1"
-    ep = load_episode(url, lambda u: fetched.append(u) or SAMPLE)
-    assert fetched == [url] and ep.url == url
+    fetch = fake_web({BBC_URL: SAMPLE})
+    ep = load_episode(BBC_URL, fetch)
+    assert fetch.calls == [BBC_URL] and ep.url == BBC_URL
 
     for bad in (
         "https://evil.example/ep",
         "ftp://www.bbc.co.uk/x",
         "https://bbc.co.uk.evil.com/",
+        "https://notyoutube.com/watch?v=x",
     ):
         with pytest.raises(EpisodeError):
             check_url(bad)
@@ -122,9 +157,62 @@ def test_load_episode_url_and_file(tmp_path):
         parse_episode("<html><title>x</title><p>no transcript</p></html>")
 
 
+def test_find_bbc_link():
+    assert find_bbc_link(YOUTUBE_RAW) == "https://bbc.in/4BHgdjN"
+    assert find_bbc_link(YOUTUBE_SAVED) == "https://bbc.in/4BHgdjN"
+    assert find_bbc_link(f"see {BBC_URL} now") == BBC_URL
+    # newsletter and home page are not episode links
+    assert (
+        find_bbc_link(
+            "https://www.bbc.co.uk/send/u1 https://www.bbc.co.uk/learningenglish"
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.youtube.com/watch?v=-ukHyqiEH1U",
+        "https://youtu.be/-ukHyqiEH1U",
+        "https://m.youtube.com/watch?v=-ukHyqiEH1U&t=30s",
+    ],
+)
+def test_load_episode_from_youtube_url(url):
+    fetch = fake_web({url: YOUTUBE_RAW, BBC_URL: SAMPLE})
+    ep = load_episode(url, fetch)
+    assert fetch.calls == [url, "https://bbc.in/4BHgdjN"]
+    assert ep.url == BBC_URL  # query string from the redirect removed
+    assert ep.title == "Do cats like music?"
+
+
+def test_load_episode_from_saved_youtube_page(tmp_path):
+    page = tmp_path / "yt.html"
+    page.write_text(YOUTUBE_SAVED, encoding="utf-8")
+    fetch = fake_web({BBC_URL: SAMPLE})
+    ep = load_episode(str(page), fetch)
+    assert ep.number == "990101" and fetch.calls == ["https://bbc.in/4BHgdjN"]
+
+
+def test_youtube_without_bbc_link_or_redirect_elsewhere():
+    url = "https://www.youtube.com/watch?v=abc"
+    with pytest.raises(EpisodeError, match="找不到 BBC"):
+        load_episode(url, fake_web({url: "<html>cat video</html>"}))
+
+    def to_elsewhere(u):
+        return (
+            ("https://evil.example/", "<html></html>")
+            if "bbc.in" in u
+            else (u, YOUTUBE_RAW)
+        )
+
+    with pytest.raises(EpisodeError, match="沒有轉到 BBC"):
+        load_episode(url, to_elsewhere)
+
+
 @pytest.mark.skipif(not REAL_PAGE.exists(), reason="saved BBC page not present")
 def test_real_episode_261105():
-    ep = load_episode(str(REAL_PAGE), fetch_text=None)
+    ep = load_episode(str(REAL_PAGE), fetch=None)
     assert ep.title == "Could vaccines cure cancer?"
     assert (ep.number, ep.date) == ("261105", "05 Nov 2026")
     assert ep.tag == "6min::2026-11-05_Could_vaccines_cure_cancer"
