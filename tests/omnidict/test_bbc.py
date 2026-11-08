@@ -247,6 +247,142 @@ def test_real_episode_261105():
         )
 
 
+# Made-up pages with the structure of the other programmes.
+REAL_EASY_SAMPLE = """<html><head><title>BBC Learning English - Real Easy English / Talking about cats</title></head>
+<body><div class="widget widget-bbcle-featuresubheader"><div class="text"><div class="details">
+<h3><b>Episode 990102</b> / 02 Jan 2099</h3></div></div></div>
+<div class="widget widget-richtext 6"><div class="text" dir="ltr">
+<h3>Introduction</h3><p>Amy and Ben talk about <strong>cats</strong>.</p>
+<h3>Vocabulary</h3>
+<p><strong>whisker<br></strong>long hair on a cat's face</p>
+<p><strong>tabby</strong><br>a cat with stripes</p>
+<p><a href="x"><img src="y"></a></p>
+<h3>Transcript</h3>
+<p><strong>Amy</strong><br>My cat is a <strong>tabby</strong>.<br> <br><strong>Ben</strong><br>Mine has white <strong>whiskers</strong>.<strong><br></strong><strong> </strong><br><strong>Amy</strong><br>Bye!</p>
+<h3>Now try this...</h3><p>Watch <a href="z"><strong>more</strong></a>.</p>
+</div></div></body></html>"""
+
+NEWS_SAMPLE = """<html><head><title>BBC Learning English - Learning English from the News / Cats rule the internet</title></head>
+<body><div class="widget widget-bbcle-featuresubheader"><div class="text"><div class="details">
+<h3><b>Episode 990103</b> / 03 Jan 2099</h3></div></div></div>
+<div class="widget widget-richtext 6"><div class="text" dir="ltr">
+<p><strong style="font-size: 1.17em;">The story</strong></p><p>Cats are popular online.</p>
+<h3>News headlines </h3>
+<p>Cat videos <strong>take over</strong> social media <br><strong>The Daily Paws</strong></p>
+<p>Why are cat pictures so <strong>irresistible</strong>?<br><strong>Cat News</strong></p>
+<p><a href="w"><strong><img src="y"></strong></a></p>
+<h3><strong style="font-size: 1.17em;">Key words and phrases</strong></h3>
+<p><strong>take over<br></strong>get control of something</p>
+<ul><li>The weeds have <strong>taken over</strong> my garden.</li></ul>
+<p><strong>irresistible</strong><br>too attractive to refuse</p>
+<ul><li>The cake was <strong>irresistible</strong>.</li></ul>
+<p><strong>purr</strong><br>the sound a happy cat makes</p>
+<ul><li>My cat <strong>purrs</strong> on my lap.</li></ul>
+<p><a href="v"><strong><img src="y"><br></strong></a></p>
+<p><strong style="font-size: 1.17em;">Next</strong></p>
+<p>Find <a href="u"><strong>more programmes here</strong></a>.</p>
+</div></div></body></html>"""
+
+
+def test_parse_real_easy_sample():
+    ep = parse_episode(REAL_EASY_SAMPLE)
+    assert ep.tag == "easy::2099-01-02_Talking_about_cats"
+    # one paragraph per word; bold words in the introduction are not vocabulary
+    assert ep.vocabulary == [
+        ("whisker", "long hair on a cat's face"),
+        ("tabby", "a cat with stripes"),
+    ]
+    assert [(line.speaker, line.sentence) for line in ep.lines] == [
+        ("Amy", "My cat is a tabby."),
+        ("Ben", "Mine has white whiskers."),
+        ("Amy", "Bye!"),
+    ]
+
+
+def test_parse_news_sample_without_transcript():
+    ep = parse_episode(NEWS_SAMPLE)
+    assert ep.tag == "news::2099-01-03_Cats_rule_the_internet"
+    assert ep.vocabulary == [
+        ("take over", "get control of something"),
+        ("irresistible", "too attractive to refuse"),
+        ("purr", "the sound a happy cat makes"),
+    ]
+    assert [(line.speaker, line.sentence) for line in ep.lines] == [
+        ("The Daily Paws", "Cat videos take over social media"),
+        ("Cat News", "Why are cat pictures so irresistible?"),
+        ("Example", "The weeds have taken over my garden."),
+        ("Example", "The cake was irresistible."),
+        ("Example", "My cat purrs on my lap."),
+    ]
+    # the headline comes before the example sentence; a word missing from the
+    # headlines falls back to its example
+    assert find_sentence(ep, "take over").speaker == "The Daily Paws"
+    assert find_sentence(ep, "purr").speaker == "Example"
+
+
+def test_saved_news_page_is_not_taken_for_youtube(tmp_path):
+    page = tmp_path / "news.html"
+    # no "saved from" comment, a YouTube link near the top, and no transcript
+    page.write_text(
+        NEWS_SAMPLE.replace(
+            "<body>", '<body><a href="https://www.youtube.com/x">yt</a>'
+        ),
+        encoding="utf-8",
+    )
+    ep = load_episode(str(page), fetch=None)
+    assert ep.title == "Cats rule the internet"
+
+
+def test_find_bbc_link_for_other_programmes():
+    url = "https://www.bbc.co.uk/learningenglish/english/features/real-easy-english/261030"
+    assert find_bbc_link(f"episode: {url}\\n") == url
+    # the programme's index page is not an episode
+    assert (
+        find_bbc_link(
+            "https://www.bbc.co.uk/learningenglish/english/features/real-easy-english"
+        )
+        is None
+    )
+
+
+REAL_EASY_PAGE = Path(__file__).parent / "bbc_pages" / "real-easy-261030.html"
+NEWS_PAGE = Path(__file__).parent / "bbc_pages" / "news-261104.html"
+
+
+@pytest.mark.skipif(not REAL_EASY_PAGE.exists(), reason="saved BBC page not present")
+def test_real_real_easy_261030():
+    ep = load_episode(str(REAL_EASY_PAGE), fetch=None)
+    assert ep.tag == "easy::2026-10-30_Talking_about_the_ocean"
+    assert [w for w, _ in ep.vocabulary] == [
+        "octopus",
+        "threat",
+        "pollution",
+        "single-use plastic",
+    ]
+    for word, text in {
+        "octopus": "octopuses",
+        "threat": "threats",
+        "pollution": "pollution",
+        "single-use plastic": "single-use plastic",
+    }.items():
+        match = find_sentence(ep, word)
+        assert match is not None, word
+        assert match.speaker == "Becca"
+        assert match.sentence[match.start : match.end] == text
+
+
+@pytest.mark.skipif(not NEWS_PAGE.exists(), reason="saved BBC page not present")
+def test_real_news_261104():
+    ep = load_episode(str(NEWS_PAGE), fetch=None)
+    assert ep.tag == "news::2026-11-04_Cyber_attacks_on_shops"
+    assert [w for w, _ in ep.vocabulary] == ["on alert", "spoiled", "vulnerable"]
+    assert {w: find_sentence(ep, w).speaker for w, _ in ep.vocabulary} == {
+        "on alert": "The Telegraph",
+        "spoiled": "CBC",
+        "vulnerable": "BBC News",
+    }
+
+
 def test_tag_formats():
     from omnidict.bbc import Episode
 
@@ -265,3 +401,29 @@ def test_tag_formats():
         == "6min::261105"
     )
     assert Episode(url="").tag == ""
+
+
+def test_vocabulary_ends_at_ordinary_text():
+    page = """<html><head><title>BBC Learning English - X / Y</title></head><body>
+<div class="widget widget-richtext"><div class="text">
+<h3>Vocabulary</h3>
+<p><strong>prime</strong><br>get ready</p>
+<p><a href="q"><img src="i"></a></p>
+<p><strong>stall</strong><br>stop</p>
+<p>This week's quiz answer is below.</p>
+<p>Find <a href="u"><strong>more programmes here</strong></a>.</p>
+<p><strong>TRANSCRIPT</strong></p>
+<p><strong>Amy</strong><br>We primed it.</p>
+</div></div></body></html>"""
+    ep = parse_episode(page)
+    assert ep.vocabulary == [("prime", "get ready"), ("stall", "stop")]
+
+
+def test_vocabulary_heading_wrapped_in_a_div():
+    page = """<html><body><div class="widget widget-richtext"><div class="text">
+<div><h3>Vocabulary</h3></div>
+<p><strong>prime</strong><br>get ready<br><strong>stall</strong><br>stop</p>
+<p><strong>TRANSCRIPT</strong></p>
+<p><strong>Amy</strong><br>We primed it.</p>
+</div></div></body></html>"""
+    assert [w for w, _ in parse_episode(page).vocabulary] == ["prime", "stall"]
