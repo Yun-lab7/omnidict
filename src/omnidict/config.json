@@ -10,5 +10,16 @@
       "cambridge-dictionary.english-chinese-traditional"
     ]
   },
+  "quick_add": {
+    "shortcut": "Ctrl+Shift+Return",
+    "word_field": "",
+    "definition_field": "",
+    "dictionary": "",
+    "follow_redirects": true
+  },
+  "batch": {
+    "delay_seconds": 1.5,
+    "menu_shortcut": "Ctrl+Shift+B"
+  },
   "debug": false
 }

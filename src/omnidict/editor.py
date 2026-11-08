@@ -220,6 +220,129 @@ def add_editor_buttons(buttons: list[str], editor: Editor) -> None:
             )
             buttons.append(button)
 
+    add_quick_add_button(buttons, editor)
+
+
+def handle_quick_add(editor: Editor) -> None:
+    """Look up the word field, fill the definition field and (in Add) add the note.
+
+    One shortcut instead of: click the next field, Ctrl+Shift+D, wait, Ctrl+Enter.
+    """
+    from anki.notes import NoteFieldsCheckResult
+    from aqt.editor import EditorMode
+    from aqt.utils import tooltip
+
+    from .globals import _, config, provider_manager
+    from .quickadd import (
+        clean_word,
+        default_dictionary,
+        definition_config,
+        describe_error,
+        fetch_definition_html,
+        find_field_indices,
+        quick_add_config,
+        resolve_dictionary,
+    )
+
+    def after_save() -> None:
+        note = editor.note
+        if note is None:
+            return
+        parent = editor.parentWindow
+        field_names = [field["name"] for field in note.note_type()["flds"]]
+        try:
+            word_index, definition_index = find_field_indices(field_names, config)
+            provider, dictionary_id = resolve_dictionary(
+                provider_manager, default_dictionary(config)
+            )
+        except ValueError as e:
+            show_warning(str(e), parent=parent)
+            return
+
+        word = clean_word(note.fields[word_index])
+        if not word:
+            show_warning(
+                f"請先在「{field_names[word_index]}」欄位輸入單字。", parent=parent
+            )
+            editor.web.setFocus()
+            return
+
+        adding = editor.editorMode == EditorMode.ADD_CARDS and hasattr(
+            parent, "_add_current_note"
+        )
+
+        def add_now() -> None:
+            # The webview may still show the old fields; the note object is the truth.
+            editor.loadNoteKeepingFocus()
+            parent._add_current_note()  # same as Ctrl+Enter, without re-reading the webview
+
+        def on_success(result) -> None:
+            if editor.note is not note:
+                return  # the user switched note type or closed the window meanwhile
+            note.fields[definition_index] = result.html
+            if result.redirected and result.word != word:
+                tooltip(f"「{word}」用的是「{result.word}」的釋義", parent=parent)
+            if adding:
+                add_now()
+            else:
+                editor.loadNoteKeepingFocus()
+
+        def on_failure(e: Exception) -> None:
+            show_critical(describe_error(e, word), parent=parent)
+
+        def start_fetch() -> None:
+            options = definition_config(config)
+            follow = quick_add_config(config)["follow_redirects"]
+            QueryOp(
+                parent=parent,
+                op=lambda col: fetch_definition_html(
+                    col, provider, dictionary_id, word, options, follow_redirects=follow
+                ),
+                success=on_success,
+            ).failure(on_failure).with_progress(f"查詢「{word}」…").run_in_background()
+
+        def maybe_fetch() -> None:
+            if note.fields[definition_index].strip():
+                if adding:
+                    add_now()  # already has a definition: just add it
+                    return
+                ask_user(
+                    _("Will overwrite existing content in the current field. Do you want to proceed?"),
+                    lambda ok: start_fetch() if ok else None,
+                    parent=parent,
+                )
+                return
+            start_fetch()
+
+        if adding and note.fields_check() == NoteFieldsCheckResult.DUPLICATE:
+            ask_user(
+                f"已經有「{word}」的卡片了，還要再加一張嗎？",
+                lambda ok: maybe_fetch() if ok else None,
+                parent=parent,
+            )
+            return
+        maybe_fetch()
+
+    editor.call_after_note_saved(after_save)
+
+
+def add_quick_add_button(buttons: list[str], editor: Editor) -> None:
+    from .globals import config
+    from .quickadd import quick_add_config
+
+    keys = quick_add_config(config)["shortcut"]
+    buttons.append(
+        editor.addButton(
+            icon=None,
+            cmd="omnidict-quick-add",
+            func=handle_quick_add,
+            id="omnidict-quick-add",
+            label="查+加",
+            tip=f"查單字並加入卡片 ({shortcut(keys)})",
+            keys=keys,
+        )
+    )
+
 
 gui_hooks.webview_will_set_content.append(add_editor_stylesheet)
 gui_hooks.editor_did_init_buttons.append(add_editor_buttons)

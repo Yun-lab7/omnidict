@@ -36,6 +36,14 @@ class ProviderManager:
 
         return self._providers.get(provider_id)
 
+    def list_dictionaries(self) -> list[tuple[str, str]]:
+        """Every dictionary as ("provider.dictionary", display name)."""
+        return [
+            (f"{provider_id}.{dictionary_id}", info.name)
+            for provider_id, catalog in self._provider_catalog.items()
+            for dictionary_id, info in catalog.dictionaries.items()
+        ]
+
     def clear_providers(self):
         self._providers.clear()
 
