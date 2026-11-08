@@ -174,3 +174,6 @@ src/*/vendor/
 # By default cassetes are ignored.
 # If the mode is set to "local", please add a .gitignore file in the provider directory to exclude the cassetes folder from exclusion.
 tests/omnidict/provider/*/*/cassettes
+
+# Saved BBC Learning English pages (BBC content, kept out of git; used by tests if present)
+tests/omnidict/bbc_pages/

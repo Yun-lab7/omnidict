@@ -240,6 +240,7 @@ def handle_quick_add(editor: Editor) -> None:
         describe_error,
         fetch_definition_html,
         find_field_indices,
+        lookup_term,
         quick_add_config,
         resolve_dictionary,
     )
@@ -296,7 +297,12 @@ def handle_quick_add(editor: Editor) -> None:
             QueryOp(
                 parent=parent,
                 op=lambda col: fetch_definition_html(
-                    col, provider, dictionary_id, word, options, follow_redirects=follow
+                    col,
+                    provider,
+                    dictionary_id,
+                    lookup_term(word),
+                    options,
+                    follow_redirects=follow,
                 ),
                 success=on_success,
             ).failure(on_failure).with_progress(f"查詢「{word}」…").run_in_background()

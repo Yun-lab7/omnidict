@@ -57,3 +57,11 @@ Tools → **OmniDict 批次加單字…**: paste one word per line, get one note
 Pause between words, so Cambridge isn't asked too fast.
 
 **`menu_shortcut`** — string, default: `"Ctrl+Shift+B"` (empty to disable)
+
+The batch dialog can also read an episode of BBC Learning English (e.g. 6 Minute
+English): paste the episode URL, or the path of the page saved with Ctrl+S, and press
+**讀取節目**. The episode's vocabulary is added to the word list, the tag is set to e.g.
+`6min::261105`, and each card gets the transcript sentence where the word was used
+(original sentence field) and the episode title, date and link (source field).
+**建立單字筆記類型** creates a note type "OmniDict 單字" with the fields Word,
+Definition, Sentence and Source.

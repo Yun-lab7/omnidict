@@ -13,6 +13,7 @@ from omnidict.quickadd import (
     describe_error,
     fetch_definition_html,
     find_field_indices,
+    lookup_term,
     parse_word_list,
     quick_add_config,
     resolve_dictionary,
@@ -179,3 +180,10 @@ def test_describe_error():
         DefinitionRedirectedError("click", "d2"), "clicked"
     )
     assert "boom" in describe_error(RuntimeError("boom"), "dog")
+
+
+def test_lookup_term():
+    assert lookup_term("prime (something)") == "prime"
+    assert lookup_term("get [sth] ready") == "get ready"
+    assert lookup_term("break the ice") == "break the ice"
+    assert lookup_term("(x)") == "(x)"

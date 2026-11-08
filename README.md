@@ -27,6 +27,10 @@
 >   definition field and, in the Add window, adds the note right away.
 > - **Tools → OmniDict 批次加單字…** (`Ctrl+Shift+B`): paste one word per line and get
 >   one note per word, with a pause between lookups, duplicate skipping and a report.
+> - The batch dialog can read a BBC Learning English episode (e.g. 6 Minute English):
+>   it adds the episode's vocabulary, tags the cards, and fills each card with the
+>   transcript sentence the word was used in and the episode as its source
+>   (`src/omnidict/bbc.py`). An "OmniDict 單字" note type can be created for this.
 > - New `quick_add` and `batch` sections in the config (see `config.md`).
 >
 > See `src/omnidict/quickadd.py` and `src/omnidict/batch.py`.

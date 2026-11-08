@@ -103,6 +103,14 @@ def clean_word(field_html: str) -> str:
     return " ".join(text.split())
 
 
+def lookup_term(word: str) -> str:
+    """What to send to the dictionary: "prime (something)" -> "prime".
+    The card keeps the word as written."""
+    stripped = re.sub(r"\s*[(\[][^)\]]*[)\]]", " ", word)
+    stripped = " ".join(stripped.split())
+    return stripped or word
+
+
 def parse_word_list(text: str) -> list[str]:
     """One word or phrase per line. Blank lines and lines starting with # are skipped;
     repeats (ignoring case) are kept only once, in their first position."""
