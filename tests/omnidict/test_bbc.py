@@ -43,7 +43,7 @@ def test_parse_sample_details():
         "990101",
         "01 Jan 2099",
     )
-    assert ep.tag == "6min::990101"
+    assert ep.tag == "6min::2099-01-01_Do_cats_like_music"
     assert ep.vocabulary == [
         ("tune in", "start listening"),
         ("get the hang of (something)", "learn how to do it"),
@@ -126,7 +126,8 @@ def test_load_episode_url_and_file(tmp_path):
 def test_real_episode_261105():
     ep = load_episode(str(REAL_PAGE), fetch_text=None)
     assert ep.title == "Could vaccines cure cancer?"
-    assert (ep.number, ep.date, ep.tag) == ("261105", "05 Nov 2026", "6min::261105")
+    assert (ep.number, ep.date) == ("261105", "05 Nov 2026")
+    assert ep.tag == "6min::2026-11-05_Could_vaccines_cure_cancer"
     assert [w for w, _ in ep.vocabulary] == [
         "a long time coming",
         "false dawn",
@@ -156,3 +157,23 @@ def test_real_episode_261105():
             speaker,
             text,
         )
+
+
+def test_tag_formats():
+    from omnidict.bbc import Episode
+
+    ep = Episode(
+        url="",
+        programme="6 Minute English",
+        title="What’s the U.K.'s best café?",
+        date="1 Sept 2026",
+    )
+    assert ep.tag == "6min::2026-09-01_Whats_the_UKs_best_café"
+    assert Episode(
+        url="", programme="The English We Speak", title="Spill the tea"
+    ).tag == ("The_English_We_Speak::Spill_the_tea")
+    assert (
+        Episode(url="", programme="6 Minute English", number="261105").tag
+        == "6min::261105"
+    )
+    assert Episode(url="").tag == ""

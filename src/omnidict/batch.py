@@ -198,7 +198,7 @@ class BatchAddDialog(QDialog):
         self.sentence_field_combo = QComboBox()
         self.source_field_combo = QComboBox()
         self.tags_edit = QLineEdit()
-        self.tags_edit.setPlaceholderText("例如 6min::261105（空格分隔多個標籤）")
+        self.tags_edit.setPlaceholderText("例如 6min::2026-11-05_Could_vaccines_cure_cancer（空格分隔多個標籤）")
         self.notetype_button = QPushButton("建立單字筆記類型")
         self.notetype_button.setToolTip(
             f"建立「{WORD_NOTETYPE_NAME}」：Word、Definition、Sentence、Source 四個欄位"

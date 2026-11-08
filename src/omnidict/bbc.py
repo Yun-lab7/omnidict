@@ -111,12 +111,16 @@ class Episode:
 
     @property
     def tag(self) -> str:
-        """e.g. "6min::261105"; empty when the page has no episode number."""
-        if not self.number:
-            return ""
+        """e.g. "6min::2026-11-05_Could_vaccines_cure_cancer".
+
+        Anki tags can't contain spaces, so they become "_". The date comes first so
+        the episodes are listed in order in the browser's sidebar.
+        """
         short = {"6 Minute English": "6min"}.get(self.programme)
-        prefix = short or re.sub(r"\W+", "-", self.programme.lower()).strip("-")
-        return f"{prefix or 'bbc'}::{self.number}"
+        prefix = short or _tag_part(self.programme) or "bbc"
+        name = "_".join(p for p in (_iso_date(self.date), _tag_part(self.title)) if p)
+        name = name or self.number
+        return f"{prefix}::{name}" if name else ""
 
     def source_html(self) -> str:
         name = " · ".join(p for p in (self.programme, self.title) if p)
@@ -131,6 +135,44 @@ class Episode:
             f"{self.title or self.url}（{len(self.vocabulary)} 個單字、"
             f"逐字稿 {len(self.lines)} 句）"
         )
+
+
+_MONTHS = {
+    m: i
+    for i, m in enumerate(
+        [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ],
+        start=1,
+    )
+}
+
+
+def _iso_date(text: str) -> str:
+    """ "05 Nov 2026" -> "2026-11-05" (no locale involved); "" if it can't be read."""
+    match = re.match(r"(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\s+(\d{4})$", text.strip())
+    if not match or match.group(2).lower() not in _MONTHS:
+        return ""
+    day, month, year = match.groups()
+    return f"{year}-{_MONTHS[month.lower()]:02d}-{int(day):02d}"
+
+
+def _tag_part(text: str) -> str:
+    """ "Could vaccines cure cancer?" -> "Could_vaccines_cure_cancer"."""
+    # Apostrophes and dots in abbreviations join the word: "U.K.'s" -> "UKs".
+    text = re.sub(r"['’.]", "", text)
+    return "_".join(re.findall(r"[^\W_]+", text))
 
 
 class EpisodeError(RuntimeError):
