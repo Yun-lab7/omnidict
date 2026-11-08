@@ -232,6 +232,8 @@ def handle_quick_add(editor: Editor) -> None:
     from aqt.editor import EditorMode
     from aqt.utils import tooltip
 
+    from .batch import is_cloze, is_duplicate
+    from .cloze import fill_cloze_note
     from .globals import _, config, provider_manager
     from .quickadd import (
         clean_word,
@@ -271,18 +273,36 @@ def handle_quick_add(editor: Editor) -> None:
         adding = editor.editorMode == EditorMode.ADD_CARDS and hasattr(
             parent, "_add_current_note"
         )
+        cloze = is_cloze(note.note_type())
 
         def add_now() -> None:
             # The webview may still show the old fields; the note object is the truth.
             editor.loadNoteKeepingFocus()
             parent._add_current_note()  # same as Ctrl+Enter, without re-reading the webview
 
+        keep_definition = False
+
         def on_success(result) -> None:
             if editor.note is not note:
                 return  # the user switched note type or closed the window meanwhile
-            note.fields[definition_index] = result.html
+            if not keep_definition:
+                note.fields[definition_index] = result.html
             if result.redirected and result.word != word:
                 tooltip(f"「{word}」用的是「{result.word}」的釋義", parent=parent)
+            if cloze:
+                problem = fill_cloze_note(
+                    note.fields,
+                    field_names,
+                    word,
+                    result.word,
+                    result.hint,
+                    result.examples,
+                    provider.name(),
+                )
+                if problem:
+                    editor.loadNoteKeepingFocus()
+                    show_warning(problem, parent=parent)
+                    return
             if adding:
                 add_now()
             else:
@@ -308,19 +328,35 @@ def handle_quick_add(editor: Editor) -> None:
             ).failure(on_failure).with_progress(f"查詢「{word}」…").run_in_background()
 
         def maybe_fetch() -> None:
+            nonlocal keep_definition
             if note.fields[definition_index].strip():
+                if adding and cloze:
+                    # Keep the user's definition; the lookup only fills the
+                    # sentence and hint if they still need it.
+                    keep_definition = True
+                    start_fetch()
+                    return
                 if adding:
                     add_now()  # already has a definition: just add it
                     return
                 ask_user(
-                    _("Will overwrite existing content in the current field. Do you want to proceed?"),
+                    _(
+                        "Will overwrite existing content in the current field. Do you want to proceed?"
+                    ),
                     lambda ok: start_fetch() if ok else None,
                     parent=parent,
                 )
                 return
             start_fetch()
 
-        if adding and note.fields_check() == NoteFieldsCheckResult.DUPLICATE:
+        if cloze:
+            # A cloze note's first field is the sentence; look for the word instead.
+            duplicate = is_duplicate(
+                note.col, note.note_type()["name"], field_names[word_index], word
+            )
+        else:
+            duplicate = note.fields_check() == NoteFieldsCheckResult.DUPLICATE
+        if adding and duplicate:
             ask_user(
                 f"已經有「{word}」的卡片了，還要再加一張嗎？",
                 lambda ok: maybe_fetch() if ok else None,

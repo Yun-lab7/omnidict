@@ -31,7 +31,12 @@
 >   from its BBC page or its YouTube video:
 >   it adds the episode's vocabulary, tags the cards, and fills each card with the
 >   transcript sentence the word was used in and the episode as its source
->   (`src/omnidict/bbc.py`). An "OmniDict 單字" note type can be created for this.
+>   (`src/omnidict/bbc.py`). Besides 6 Minute English it reads Real Easy English and
+>   Learning English from the News (headlines and example sentences, no transcript).
+> - Cloze cards: an "OmniDict 克漏字" note type (`src/omnidict/cloze.py`) hides the word
+>   in its sentence (a dictionary example when the episode has none), shows a short
+>   definition as the hint, and keeps the full definition and sound for the back.
+>   查+加 works with it too.
 > - New `quick_add` and `batch` sections in the config (see `config.md`).
 >
 > See `src/omnidict/quickadd.py` and `src/omnidict/batch.py`.

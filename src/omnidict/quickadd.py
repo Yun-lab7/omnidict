@@ -5,7 +5,7 @@ Nothing in this module touches Qt, so it can be tested without a running Anki wi
 
 import html
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from anki.collection import Collection
@@ -127,16 +127,42 @@ def parse_word_list(text: str) -> list[str]:
     return words
 
 
+WORD_FIELD_NAMES = ("word", "單字")
+DEFINITION_FIELD_NAMES = ("definition", "meaning", "釋義")
+SENTENCE_FIELD_NAMES = (
+    "text",
+    "sentence",
+    "example",
+    "context",
+    "原句",
+    "例句",
+    "句子",
+)
+HINT_FIELD_NAMES = ("hint", "提示")
+SOURCE_FIELD_NAMES = ("source", "來源", "出處")
+
+
+def guess_field(names: list[str], wanted: tuple[str, ...]) -> int | None:
+    """Index of the first field whose name (ignoring case) is one of `wanted`."""
+    lowered = [n.casefold() for n in names]
+    for candidate in wanted:
+        if candidate in lowered:
+            return lowered.index(candidate)
+    return None
+
+
 def find_field_indices(field_names: list[str], config: dict | None) -> tuple[int, int]:
     """Index of the word field and of the definition field.
 
-    Uses `quick_add.word_field` / `quick_add.definition_field` when set; otherwise the
-    first field is the word and the second field is the definition.
+    Uses `quick_add.word_field` / `quick_add.definition_field` when set; otherwise a
+    field named "Word" / "Definition" (as in the OmniDict note type, where the cloze
+    sentence comes first); otherwise the first field is the word and the second field
+    is the definition.
     """
     section = quick_add_config(config)
     lowered = [name.casefold() for name in field_names]
 
-    def index_of(name: str, fallback: int, label: str) -> int:
+    def index_of(name: str, wanted: tuple[str, ...], fallback: int, label: str) -> int:
         if name:
             try:
                 return lowered.index(name.casefold())
@@ -144,13 +170,21 @@ def find_field_indices(field_names: list[str], config: dict | None) -> tuple[int
                 raise ValueError(
                     f"這個筆記類型沒有叫「{name}」的欄位（設定裡的 {label}）。"
                 ) from None
+        guessed = guess_field(field_names, wanted)
+        if guessed is not None:
+            return guessed
         if fallback >= len(field_names):
             raise ValueError("這個筆記類型只有一個欄位，至少要兩個欄位（單字、釋義）。")
         return fallback
 
-    word_index = index_of(section["word_field"], 0, "quick_add.word_field")
+    word_index = index_of(
+        section["word_field"], WORD_FIELD_NAMES, 0, "quick_add.word_field"
+    )
     definition_index = index_of(
-        section["definition_field"], 1, "quick_add.definition_field"
+        section["definition_field"],
+        DEFINITION_FIELD_NAMES,
+        1,
+        "quick_add.definition_field",
     )
     if word_index == definition_index:
         raise ValueError("單字欄位和釋義欄位不能是同一個。")
@@ -163,6 +197,31 @@ class FetchResult:
     word: str  # what was actually looked up (may differ after a redirect)
     dictionary_id: str
     redirected: bool
+    # The first meaning as plain text, without the word or its sound, so it can be a
+    # hint on the front of a cloze card.
+    hint: str = ""
+    # The dictionary's example sentences, for a word without a sentence of its own.
+    examples: list[str] = field(default_factory=list)
+
+
+def plain_hint(definition) -> str:
+    for entry in definition.entries:
+        for sense in entry.senses:
+            text = " ".join((sense.definition or "").split()).rstrip(":").strip()
+            if text:
+                return text
+    return ""
+
+
+def example_sentences(definition) -> list[str]:
+    sentences = []
+    for entry in definition.entries:
+        for sense in entry.senses:
+            for example in sense.examples or []:
+                text = " ".join((example.sentence or "").split())
+                if text:
+                    sentences.append(text)
+    return sentences
 
 
 def fetch_definition_html(
@@ -208,6 +267,8 @@ def fetch_definition_html(
             word=term,
             dictionary_id=current_dictionary,
             redirected=redirected,
+            hint=plain_hint(definition),
+            examples=example_sentences(definition),
         )
     raise DefinitionNotFoundError(f"太多次轉址，放棄查詢 {word}")
 

@@ -64,5 +64,10 @@ its description is followed), or the path of a page saved with Ctrl+S, and press
 **讀取節目**. The episode's vocabulary is added to the word list, the tag is set to e.g.
 `6min::2026-11-05_Could_vaccines_cure_cancer`, and each card gets the transcript sentence where the word was used
 (original sentence field) and the episode title, date and link (source field).
-**建立單字筆記類型** creates a note type "OmniDict 單字" with the fields Word,
-Definition, Sentence and Source.
+Words without such a sentence get one of the dictionary's examples.
+
+**建立克漏字筆記類型** creates a Cloze note type "OmniDict 克漏字" with the fields
+Text (the sentence, with the word hidden), Word, Hint (a short definition shown on the
+front, with the word itself hidden), Definition (with the sound, on the back) and
+Source. With a Cloze note type, **查+加** also hides the word in the sentence you typed,
+or puts in a dictionary example when the sentence is empty.

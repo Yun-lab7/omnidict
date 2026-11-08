@@ -24,6 +24,7 @@ class FakeDefinition:
     def __init__(self, word, dictionary_id):
         self.word, self.dictionary_id = word, dictionary_id
         self.saved = False
+        self.entries = []
 
     def save_audio_files(self, col):
         self.saved = True
