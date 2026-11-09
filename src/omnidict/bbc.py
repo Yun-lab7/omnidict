@@ -613,7 +613,10 @@ class SentenceMatch:
         return self._with_speaker(quoted)
 
     def cloze_html(self) -> str:
-        """The sentence with the word hidden, for a Cloze note: "a way of {{c1::priming}} …"."""
+        """The sentence with the word hidden, for a Cloze note: "a way of {{c1::priming}} …".
+
+        Without the speaker: the card reads the sentence aloud, and the speaker's name
+        is not part of it (it goes with the source instead)."""
 
         def plain(text: str) -> str:
             # Braces and "::" in the text would confuse Anki's cloze syntax.
@@ -628,7 +631,7 @@ class SentenceMatch:
             + "}}"
             + plain(s[self.end :])
         )
-        return self._with_speaker(quoted)
+        return quoted
 
     def _with_speaker(self, quoted: str) -> str:
         if not self.speaker:

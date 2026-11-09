@@ -17,10 +17,20 @@ CLOZE_FRONT = (
     '<div class="sentence">{{cloze:Text}}</div>\n'
     '{{#Hint}}<div class="hint">{{Hint}}</div>{{/Hint}}'
 )
+# The whole sentence is read aloud on the back (Anki's text-to-speech, British
+# English); the front stays silent so it doesn't give the word away.
+TTS_LANG = "en_GB"
 CLOZE_BACK = (
     CLOZE_FRONT + '\n<hr id="answer">\n<div class="word">{{Word}}</div>\n'
     "{{Definition}}\n"
+    f'<div class="read-aloud">{{{{tts {TTS_LANG}:cloze:Text}}}}</div>\n'
     '{{#Source}}<div class="source">{{Source}}</div>{{/Source}}'
+)
+# Back templates of earlier versions, upgraded to CLOZE_BACK when found unchanged.
+OLD_CLOZE_BACKS = (
+    CLOZE_FRONT + '\n<hr id="answer">\n<div class="word">{{Word}}</div>\n'
+    "{{Definition}}\n"
+    '{{#Source}}<div class="source">{{Source}}</div>{{/Source}}',
 )
 CLOZE_CSS = """.card {
   font-family: arial, sans-serif;
@@ -39,6 +49,7 @@ CLOZE_CSS = """.card {
 .hint { margin-top: 0.8em; color: #555; }
 .hint::before { content: "💡 "; }
 .word { font-size: 28px; font-weight: bold; margin-bottom: 0.3em; }
+.read-aloud { margin-top: 0.5em; }
 .source { margin-top: 0.8em; font-size: 0.75em; color: #777; }
 .source a { color: inherit; }
 .nightMode .card { color: #ddd; background-color: #2f2f31; }
@@ -57,6 +68,33 @@ def has_cloze(text: str) -> bool:
 class Sentence:
     html: str
     origin: str  # "episode", "dictionary" or "word" (only the word itself)
+    # Who said it ("Becca", "Cambridge Dictionary"). For a cloze note it is kept out
+    # of the sentence (which is read aloud) and shown with the source instead.
+    speaker: str = ""
+
+
+def speaker_html(speaker: str) -> str:
+    return f'<span class="od-speaker">{html.escape(speaker)}</span>' if speaker else ""
+
+
+def with_speaker(source_html: str, speaker: str) -> str:
+    """ "Becca · <a>Real Easy English · …</a>"."""
+    return " · ".join(p for p in (speaker_html(speaker), source_html) if p)
+
+
+_SPEAKER_IN_TEXT = re.compile(
+    r'\s*<span class="od-speaker">—\s*(.*?)</span>\s*$', re.DOTALL
+)
+
+
+def move_speaker_to_source(text: str, source: str) -> tuple[str, str] | None:
+    """For notes made before the sentence was read aloud: take "— Becca" out of the
+    sentence and put it in front of the source. None if there's nothing to move."""
+    found = _SPEAKER_IN_TEXT.search(text)
+    if not found:
+        return None
+    speaker = html.unescape(found.group(1)).strip()
+    return text[: found.start()], with_speaker(source, speaker)
 
 
 def build_sentence(
@@ -82,7 +120,9 @@ def build_sentence(
         match = find_in_lines(lines, word, alternatives)
         origin = "dictionary"
     if match is not None:
-        return Sentence(match.cloze_html() if cloze else match.html(), origin)
+        if cloze:
+            return Sentence(match.cloze_html(), origin, match.speaker)
+        return Sentence(match.html(), origin, match.speaker)
     if cloze:
         return Sentence("{{c1::" + html.escape(word) + "}}", "word")
     return None
@@ -124,7 +164,12 @@ def fill_cloze_note(
     is (the sentence the user typed doesn't contain the word).
     """
     # Imported here: quickadd needs Anki's collection module, this module doesn't.
-    from .quickadd import HINT_FIELD_NAMES, SENTENCE_FIELD_NAMES, guess_field
+    from .quickadd import (
+        HINT_FIELD_NAMES,
+        SENTENCE_FIELD_NAMES,
+        SOURCE_FIELD_NAMES,
+        guess_field,
+    )
 
     text_index = guess_field(names, SENTENCE_FIELD_NAMES)
     if text_index is None:
@@ -136,6 +181,14 @@ def fill_cloze_note(
             word, looked_up, None, examples, dictionary_name, cloze=True
         )
         fields[text_index] = sentence.html if sentence else ""
+        source_index = guess_field(names, SOURCE_FIELD_NAMES)
+        if (
+            sentence is not None
+            and sentence.speaker
+            and source_index is not None
+            and not fields[source_index].strip()
+        ):
+            fields[source_index] = speaker_html(sentence.speaker)
     elif not has_cloze(text):
         hidden = cloze_existing(text, *terms)
         if hidden is None:

@@ -6,6 +6,8 @@ from omnidict.cloze import (
     fill_cloze_note,
     has_cloze,
     mask_word,
+    move_speaker_to_source,
+    with_speaker,
 )
 from omnidict.provider.common import (
     Definition,
@@ -28,8 +30,10 @@ def test_build_sentence_prefers_the_episode():
     ep = parse_episode(SAMPLE)
     sentence = build_sentence("purr", "purr", ep, EXAMPLES, "Cambridge", cloze=True)
     assert sentence.origin == "episode"
-    assert sentence.html == (
-        'She {{c1::purrs}} at Mozart, too. <span class="od-speaker">— Ben</span>'
+    # the speaker is kept out of the sentence, which is read aloud
+    assert (sentence.html, sentence.speaker) == (
+        "She {{c1::purrs}} at Mozart, too.",
+        "Ben",
     )
     # not a cloze note type: the word is bold instead
     bold = build_sentence("purr", "purr", ep, EXAMPLES, "Cambridge", cloze=False)
@@ -43,8 +47,9 @@ def test_build_sentence_falls_back_to_dictionary_examples():
         "loudly", "loudly", ep, ["He sang loudly."], "Cambridge", cloze=True
     )
     assert sentence.origin == "dictionary"
-    assert sentence.html == (
-        'He sang {{c1::loudly}}. <span class="od-speaker">— Cambridge</span>'
+    assert (sentence.html, sentence.speaker) == (
+        "He sang {{c1::loudly}}.",
+        "Cambridge",
     )
     # no episode at all (a plain word list)
     sentence = build_sentence("purr", "purr", None, EXAMPLES, "Cambridge", cloze=True)
@@ -110,7 +115,8 @@ def test_fill_cloze_note_empty_sentence_gets_an_example():
         "Cambridge",
     )
     assert problem is None
-    assert fields[0].startswith("My cat {{c1::purred}} loudly.")
+    assert fields[0] == "My cat {{c1::purred}} loudly."
+    assert fields[4] == '<span class="od-speaker">Cambridge</span>'
     assert fields[2] == "(of a cat) to ___ softly"
 
 
@@ -165,3 +171,18 @@ def test_cloze_existing_with_entities():
         "I like {{c1::rock &amp; roll}}."
     )
     assert mask_word("don’t stop", "don't") == "___ stop"
+
+
+def test_speaker_goes_with_the_source():
+    assert with_speaker("<a href=x>6 Minute English</a>", "Becca") == (
+        '<span class="od-speaker">Becca</span> · <a href=x>6 Minute English</a>'
+    )
+    assert with_speaker("<a>x</a>", "") == "<a>x</a>"
+    assert with_speaker("", "Cambridge") == '<span class="od-speaker">Cambridge</span>'
+    # notes made by the previous version had the speaker inside the sentence
+    old_text = 'I {{c1::love}} it. <span class="od-speaker">— Tom &amp; Jo</span>'
+    assert move_speaker_to_source(old_text, "<a>ep</a>") == (
+        "I {{c1::love}} it.",
+        '<span class="od-speaker">Tom &amp; Jo</span> · <a>ep</a>',
+    )
+    assert move_speaker_to_source("I {{c1::love}} it.", "") is None

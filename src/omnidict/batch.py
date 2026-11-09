@@ -50,9 +50,12 @@ from .cloze import (
     CLOZE_FIELDS,
     CLOZE_FRONT,
     CLOZE_NOTETYPE_NAME,
+    OLD_CLOZE_BACKS,
     build_sentence,
     episode_definition,
     mask_word,
+    move_speaker_to_source,
+    with_speaker,
 )
 from .logger import logger as _addon_logger
 from .provider import DefinitionNotFoundError
@@ -123,6 +126,7 @@ def ensure_cloze_notetype(col: Collection) -> NotetypeId:
     created once."""
     existing = col.models.id_for_name(CLOZE_NOTETYPE_NAME)
     if existing:
+        upgrade_cloze_notetype(col)
         return NotetypeId(existing)
     models = col.models
     notetype = models.new(CLOZE_NOTETYPE_NAME)
@@ -136,6 +140,41 @@ def ensure_cloze_notetype(col: Collection) -> NotetypeId:
     notetype["css"] = CLOZE_CSS
     models.add(notetype)
     return NotetypeId(models.id_for_name(CLOZE_NOTETYPE_NAME))
+
+
+def upgrade_cloze_notetype(col: Collection) -> int:
+    """Bring a note type made by an earlier version up to date: read the sentence
+    aloud on the back, and move the speaker out of the sentence into the source.
+
+    Only a back template still exactly as an earlier version made it is replaced, so
+    the user's own edits are kept. Returns the number of notes changed.
+    """
+    notetype_id = col.models.id_for_name(CLOZE_NOTETYPE_NAME)
+    if not notetype_id:
+        return 0
+    notetype = col.models.get(NotetypeId(notetype_id))
+    template = notetype["tmpls"][0] if notetype and notetype["tmpls"] else None
+    if template is None or template["afmt"] not in OLD_CLOZE_BACKS:
+        return 0
+    template["afmt"] = CLOZE_BACK
+    notetype["css"] = CLOZE_CSS
+    col.models.update_dict(notetype)
+
+    names = [f["name"] for f in notetype["flds"]]
+    if "Text" not in names or "Source" not in names:
+        return 0
+    text_i, source_i = names.index("Text"), names.index("Source")
+    changed = []
+    for note_id in col.find_notes(f'"note:{CLOZE_NOTETYPE_NAME}"'):
+        note = col.get_note(note_id)
+        moved = move_speaker_to_source(note.fields[text_i], note.fields[source_i])
+        if moved:
+            note.fields[text_i], note.fields[source_i] = moved
+            changed.append(note)
+    if changed:
+        col.update_notes(changed)
+    log.info(f"Upgraded {CLOZE_NOTETYPE_NAME}: read-aloud added, {len(changed)} notes")
+    return len(changed)
 
 
 def is_cloze(notetype: NotetypeDict | None) -> bool:
@@ -564,6 +603,7 @@ class BatchAddDialog(QDialog):
         notes = list(notes or [])
         if result.redirected and result.word != word:
             notes.append(f"用「{result.word}」的釋義")
+        sentence = None
         if self.sentence_index is not None:
             sentence = build_sentence(
                 word,
@@ -586,8 +626,12 @@ class BatchAddDialog(QDialog):
             note.fields[self.hint_index] = html.escape(
                 mask_word(hint, word, lookup_term(word), result.word)
             )
-        if self.episode is not None and self.source_index is not None:
-            note.fields[self.source_index] = self.episode.source_html()
+        if self.source_index is not None:
+            source = self.episode.source_html() if self.episode is not None else ""
+            if self.cloze and sentence is not None:
+                # The sentence is read aloud, so its speaker goes with the source.
+                source = with_speaker(source, sentence.speaker)
+            note.fields[self.source_index] = source
         extra = f"（{'；'.join(notes)}）" if notes else ""
 
         def on_added(_changes) -> None:
@@ -672,6 +716,7 @@ def open_batch_dialog() -> None:
     if mw.col is None:
         return
     if _dialog is None or _dialog.col is not mw.col:
+        upgrade_cloze_notetype(mw.col)
         _dialog = BatchAddDialog(mw)
     _dialog.show()
     _dialog.raise_()
@@ -689,3 +734,13 @@ def add_menu_item() -> None:
         action.setShortcut(QKeySequence(keys))
     qconnect(action.triggered, open_batch_dialog)
     mw.form.menuTools.addAction(action)
+
+    from aqt import gui_hooks
+
+    def on_profile_open() -> None:
+        try:
+            upgrade_cloze_notetype(mw.col)
+        except Exception:
+            log.exception(f"Upgrading {CLOZE_NOTETYPE_NAME} failed")
+
+    gui_hooks.profile_did_open.append(on_profile_open)
